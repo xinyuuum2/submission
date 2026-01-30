@@ -1,0 +1,25 @@
+.DS_Store
+Thumbs.db
+
+# Local env (never commit real secrets)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local databases / artifacts (regenerate via DEMO.md)
+*.sqlite
+*.sqlite-*
+*.db
+
+# Logs / temp
+*.log
+
