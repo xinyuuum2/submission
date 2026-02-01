@@ -97,9 +97,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             rows = conn.execute(
                 """
-                SELECT DISTINCT token_id
-                FROM trades
-                WHERE token_id NOT IN (SELECT token_id FROM token_map)
+                -- Prioritize most recently traded tokenIds so UI proof/slug fills fast
+                SELECT t.token_id
+                FROM trades t
+                LEFT JOIN token_map tm ON tm.token_id = t.token_id
+                WHERE tm.token_id IS NULL
+                GROUP BY t.token_id
+                ORDER BY COALESCE(MAX(t.timestamp), 0) DESC, MAX(t.block_number) DESC
                 LIMIT ?
                 """,
                 (args.max_token_ids,),

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from web3 import Web3
 from web3._utils.events import get_event_data
 
-from db import db_conn
+from db import db_conn, init_db
 
 
 ORDER_FILLED_EVENT_ABI: dict[str, Any] = {
@@ -205,28 +205,33 @@ def backfill_trades(
     sleep_ms: int = 0,
     verbose: bool = True,
 ) -> None:
+    # Ensure schema/migrations (including trades.timestamp) exist for older DBs.
+    init_db(db_path)
     w3 = Web3(Web3.HTTPProvider(polygon_rpc_url, request_kwargs={"timeout": 60}))
     topic0 = _event_topic(w3)
 
     insert_sql = """
-        INSERT OR IGNORE INTO trades (
-          tx_hash, log_index, block_number, contract_address,
+        INSERT INTO trades (
+          tx_hash, log_index, block_number, timestamp, contract_address,
           order_hash, maker, taker,
           maker_asset_id, taker_asset_id, token_id,
           maker_amount, taker_amount, fee,
           collateral_amount, token_amount, side, price,
           decoded_json, raw_log_json
         ) VALUES (
-          ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?,
           ?, ?, ?, ?,
           ?, ?
         )
+        ON CONFLICT(tx_hash, log_index) DO UPDATE SET
+          timestamp = COALESCE(trades.timestamp, excluded.timestamp)
         """
 
     total_inserted = 0
+    block_ts_cache: dict[int, int | None] = {}
     with db_conn(db_path) as conn:
         for addr in exchange_addresses:
             for from_block, to_block, logs in _iter_logs(
@@ -242,6 +247,22 @@ def backfill_trades(
                         f"[backfill] {addr.lower()} blocks {from_block}-{to_block} logs={len(logs)}",
                         flush=True,
                     )
+
+                # Fetch block timestamps for this chunk (cached).
+                # Polygon RPC call: eth_getBlockByNumber
+                unique_blocks = sorted({int(l.get("blockNumber")) for l in logs if l and l.get("blockNumber") is not None})
+                for bn in unique_blocks:
+                    if bn in block_ts_cache:
+                        continue
+                    try:
+                        blk = w3.eth.get_block(bn)
+                        ts_raw = getattr(blk, "timestamp", None) or blk.get("timestamp")
+                        ts = int(ts_raw) if ts_raw is not None else None
+                        if ts is not None and ts <= 0:
+                            ts = None
+                    except Exception:
+                        ts = None
+                    block_ts_cache[bn] = ts
 
                 rows: list[tuple[Any, ...]] = []
                 for log in logs:
@@ -286,12 +307,16 @@ def backfill_trades(
                     log_index = int(raw["logIndex"])
                     if not tx_hash:
                         continue
+                    block_number = int(raw["blockNumber"])
+                    ts_val = block_ts_cache.get(block_number)
+                    timestamp = int(ts_val) if ts_val is not None else None
 
                     rows.append(
                         (
                             tx_hash,
                             log_index,
-                            int(raw["blockNumber"]),
+                            block_number,
+                            timestamp,
                             raw["address"],
                             decoded.get("orderHash"),
                             decoded["maker"],

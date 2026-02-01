@@ -102,6 +102,7 @@ def _migrate_tokenids_to_text(conn: sqlite3.Connection) -> None:
               tx_hash TEXT NOT NULL,
               log_index INTEGER NOT NULL,
               block_number INTEGER NOT NULL,
+              timestamp INTEGER,
               contract_address TEXT NOT NULL,
 
               order_hash TEXT,
@@ -158,26 +159,50 @@ def _migrate_tokenids_to_text(conn: sqlite3.Connection) -> None:
             conn.execute("DROP TABLE token_map_old;")
 
         if _table_exists(conn, "trades_old"):
-            conn.execute(
-                """
-                INSERT INTO trades (
-                  tx_hash, log_index, block_number, contract_address,
-                  order_hash, maker, taker,
-                  maker_asset_id, taker_asset_id, token_id,
-                  maker_amount, taker_amount, fee,
-                  collateral_amount, token_amount, side, price,
-                  decoded_json, raw_log_json
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(trades_old)").fetchall()}
+            has_ts = "timestamp" in cols
+            if has_ts:
+                conn.execute(
+                    """
+                    INSERT INTO trades (
+                      tx_hash, log_index, block_number, timestamp, contract_address,
+                      order_hash, maker, taker,
+                      maker_asset_id, taker_asset_id, token_id,
+                      maker_amount, taker_amount, fee,
+                      collateral_amount, token_amount, side, price,
+                      decoded_json, raw_log_json
+                    )
+                    SELECT
+                      tx_hash, log_index, block_number, timestamp, contract_address,
+                      order_hash, maker, taker,
+                      CAST(maker_asset_id AS TEXT), CAST(taker_asset_id AS TEXT), CAST(token_id AS TEXT),
+                      maker_amount, taker_amount, fee,
+                      collateral_amount, token_amount, side, price,
+                      decoded_json, raw_log_json
+                    FROM trades_old
+                    """
                 )
-                SELECT
-                  tx_hash, log_index, block_number, contract_address,
-                  order_hash, maker, taker,
-                  CAST(maker_asset_id AS TEXT), CAST(taker_asset_id AS TEXT), CAST(token_id AS TEXT),
-                  maker_amount, taker_amount, fee,
-                  collateral_amount, token_amount, side, price,
-                  decoded_json, raw_log_json
-                FROM trades_old
-                """
-            )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO trades (
+                      tx_hash, log_index, block_number, timestamp, contract_address,
+                      order_hash, maker, taker,
+                      maker_asset_id, taker_asset_id, token_id,
+                      maker_amount, taker_amount, fee,
+                      collateral_amount, token_amount, side, price,
+                      decoded_json, raw_log_json
+                    )
+                    SELECT
+                      tx_hash, log_index, block_number, NULL AS timestamp, contract_address,
+                      order_hash, maker, taker,
+                      CAST(maker_asset_id AS TEXT), CAST(taker_asset_id AS TEXT), CAST(token_id AS TEXT),
+                      maker_amount, taker_amount, fee,
+                      collateral_amount, token_amount, side, price,
+                      decoded_json, raw_log_json
+                    FROM trades_old
+                    """
+                )
             conn.execute("DROP TABLE trades_old;")
 
         conn.execute("COMMIT;")
@@ -186,6 +211,16 @@ def _migrate_tokenids_to_text(conn: sqlite3.Connection) -> None:
         raise
     finally:
         conn.execute("PRAGMA foreign_keys=ON;")
+
+
+def _ensure_trades_timestamp(conn: sqlite3.Connection) -> None:
+    """
+    Backwards-compatible migration: older DBs may not have trades.timestamp.
+    We store Unix epoch seconds (UTC) for time-window filtering & charts.
+    """
+    if _column_type(conn, "trades", "timestamp") is None:
+        conn.execute("ALTER TABLE trades ADD COLUMN timestamp INTEGER;")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON trades(timestamp);")
 
 
 def init_db(db_path: str) -> None:
@@ -226,6 +261,7 @@ def init_db(db_path: str) -> None:
               tx_hash TEXT NOT NULL,
               log_index INTEGER NOT NULL,
               block_number INTEGER NOT NULL,
+              timestamp INTEGER,
               contract_address TEXT NOT NULL,
 
               order_hash TEXT,
@@ -299,5 +335,53 @@ def init_db(db_path: str) -> None:
               key TEXT PRIMARY KEY,
               value TEXT
             );
+
+            -- Dating / social layer (local-only)
+            CREATE TABLE IF NOT EXISTS dating_swipes (
+              from_address TEXT NOT NULL,
+              to_address TEXT NOT NULL,
+              action TEXT NOT NULL, -- like / pass
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(from_address, to_address)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dating_swipes_from ON dating_swipes(from_address);
+            CREATE INDEX IF NOT EXISTS idx_dating_swipes_to ON dating_swipes(to_address);
+            CREATE INDEX IF NOT EXISTS idx_dating_swipes_action ON dating_swipes(action);
+
+            CREATE TABLE IF NOT EXISTS dating_matches (
+              user_a TEXT NOT NULL,
+              user_b TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(user_a, user_b)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dating_matches_a ON dating_matches(user_a);
+            CREATE INDEX IF NOT EXISTS idx_dating_matches_b ON dating_matches(user_b);
+
+            CREATE TABLE IF NOT EXISTS dating_daily_picks (
+              pick_date TEXT NOT NULL,          -- YYYY-MM-DD
+              for_address TEXT NOT NULL,        -- viewer address
+              rank INTEGER NOT NULL,            -- 1..N
+              candidate_address TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(pick_date, for_address, candidate_address)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dating_daily_for ON dating_daily_picks(for_address, pick_date);
+
+            -- Follow / copytrade (local-only)
+            CREATE TABLE IF NOT EXISTS user_follows (
+              follower_address TEXT NOT NULL,
+              followee_address TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              PRIMARY KEY(follower_address, followee_address)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows(follower_address);
+            CREATE INDEX IF NOT EXISTS idx_user_follows_followee ON user_follows(followee_address);
             """
         )
+
+        # Ensure new columns exist on older DB files.
+        _ensure_trades_timestamp(conn)

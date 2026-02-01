@@ -20,6 +20,18 @@ env/
 *.sqlite-*
 *.db
 
+# Exports / local artifacts
+*.xlsx
+*.xls
+*.csv
+*.parquet
+*.jsonl
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
 # Logs / temp
 *.log
 

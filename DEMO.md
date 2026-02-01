@@ -80,7 +80,7 @@ streamlit run src/streamlit_app.py
 ## 预期输出（本地）
 
 - API: open `http://127.0.0.1:8000/leaderboard`
-- Streamlit: a leaderboard + address profile + proof JSON viewer
+- Streamlit: Leaderboard + Following + Discover (Signal Finder) + Profile + proof JSON viewer
 
 Add screenshots to `screenshots/` and optionally include a short video in `video/` (<=5 minutes).
 

@@ -12,7 +12,7 @@ PolyReputation 是一个把 **Polymarket（Polygon）链上成交记录**转成 
 - **事件解码**：按 `OrderFilled` ABI 解码 + 推断 side/tokenId/price 等字段
 - **数据存储**：SQLite（`trades/markets/token_map/user_market_pnl/user_stats/user_tags`）
 - **服务层**：FastAPI 提供查询接口（leaderboard/profile）
-- **展示层**：Streamlit 看板（排行榜 + 地址画像 + proof 展示）
+- **展示层**：Streamlit 看板（Leaderboard + Following + Discover + About；Profile 从页面内进入）
 
 ### 目录结构（核心）
 
@@ -72,13 +72,38 @@ python -m src.main init-db
 - `GET /leaderboard?sort=roi|profit&limit=50`
 - `GET /profile/{address}`
 
+### Streamlit（本地）
+
+```bash
+streamlit run src/streamlit_app.py
+```
+
+页面包含：
+- **Leaderboard**：榜单 + 看板（sector 饼图、Top markets、活动曲线），支持按时间窗口（past day/week/month）过滤并分页浏览
+- **Following**：关注列表（更丰富的画像卡片）+ “我关注的人最近交易了什么”（feed，cards/table）
+- **Discover**：刷卡式发现地址（Signal score + tags + on-chain proof），一键 Follow 加入 watchlist（本地，默认 `local` 身份）
+- **Profile**：地址画像 + tags + proof JSON（**不在左侧导航**，通过各页的 Profile 按钮进入）
+- **About**：项目说明与数据来源
+
 ### 功能说明（对应最低门槛）
 
 - **交易解码**：解析 Polygon 上 Polymarket CTF Exchange 的 `OrderFilled` 事件，推断 BUY/SELL、tokenId、成交额与价格，并把 `tx_hash + log_index + decoded_json` 入库作为 proof
 - **市场识别**：通过 Gamma API 同步 `tokenId → market` 映射（`token_map`），把 trade 归类到具体市场（`markets`）
 - **数据存储**：SQLite（`trades/markets/token_map/user_market_pnl/user_stats/user_tags`）
 - **API 接口**：FastAPI 提供可查询的 HTTP 端点（leaderboard/profile）
-- **前端展示**：Streamlit 看板（排行榜 + 地址画像 + proof 展示）
+- **前端展示**：Streamlit 看板（Leaderboard + Following + Discover + About；Profile 从页面内进入）
+
+### Discover 模块（创新加分项 / 工具化 UI）
+
+- **刷卡式发现**：把“陌生地址画像”做成卡片流（Signal score + tags + 近 3 笔交易 proof）
+- **Follow（本地）**：Follow 会写入 SQLite 的 `user_follows`，用于生成 copytrade feed（MVP：本地 watchlist）
+- **Swipe 记录（本地）**：Skip/Follow 行为会写入 `dating_swipes`（便于去重与复现）
+- **Signal score（可解释）**：基于链上行为（token/market overlap、方向偏好、节奏/风险、样本量）生成 0-100 分，并给出解释
+
+### UI 说明（便于评审理解）
+
+- **Profile 入口**：为了简化导航，Profile 不显示在左侧导航栏；通过 Leaderboard/Following/Discover 内的 “Profile” 按钮进入，并支持返回。
+- **user_XXXXXX**：Leaderboard 默认显示本地生成的用户 id（由地址稳定映射，便于观看），**不是 Polymarket 官方账号 id**；进入 Profile 会展示完整地址与链上 proof。
 
 ### 数据来源
 

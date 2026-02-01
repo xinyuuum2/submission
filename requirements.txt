@@ -6,3 +6,4 @@ requests
 python-dotenv
 pandas
 urllib3<2
+openpyxl
