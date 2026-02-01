@@ -1,11 +1,12 @@
-# PolyReputation
+# PolyBook
 
 ## 项目简介
-PolyReputation 是一个把 **Polymarket（Polygon）链上成交记录**转成 **地址画像/信誉标签/排行榜** 的小型项目（本地 SQLite + FastAPI + Streamlit）。
+PolyBook 是一个把 **Polymarket（Polygon）链上成交记录**做成「社交笔记」的数据产品：你可以发现值得关注的链上交易者、订阅他们的动态，并且随时用 on-chain proof 验证每一条“笔记”。
 
 - **交易事实（Proof）**：从 Polygon 的 Polymarket CTF Exchange 合约回填 `OrderFilled` 事件，保存 `tx_hash + log_index + decoded JSON` 作为可验证证据
 - **市场元数据**：通过 Gamma API 同步 market 与 `tokenId → market` 映射，并用 `outcomePrices` 做一个简单的“赢家 token”推断
 - **聚合计算**：对已 resolved 的市场计算近似 realized PnL，产出 `user_market_pnl / user_stats / user_tags`
+- **社交层（本地 MVP）**：Follow / Swipe 等社交行为保存在本地 SQLite（演示友好，链上数据仍可验证）
 
 ## 技术架构
 - **数据获取**：Polygon RPC `eth_getLogs` 拉取 CTF Exchange 合约 `OrderFilled` 事件
@@ -79,11 +80,13 @@ streamlit run src/streamlit_app.py
 ```
 
 页面包含：
-- **Leaderboard**：榜单 + 看板（sector 饼图、Top markets、活动曲线），支持按时间窗口（past day/week/month）过滤并分页浏览
-- **Following**：关注列表（更丰富的画像卡片）+ “我关注的人最近交易了什么”（feed，cards/table）
-- **Discover**：刷卡式发现地址（Signal score + tags + on-chain proof），一键 Follow 加入 watchlist（本地，默认 `local` 身份）
+- **Leaderboard（🏆 影响力榜单）**：社交口吻的数据看板 + 表格样式增强（标签化 sector、带单收益等）
+- **Following（订阅动态）**：把 watchlist 变成信息流（Notes/Log/Cards/Table），每条动态可一键验证
+- **Discover（发现好博主）**：刷卡式“博主名片”（人设标签 + bento 磁贴 + 可读证据流），一键订阅
 - **Profile**：地址画像 + tags + proof JSON（**不在左侧导航**，通过各页的 Profile 按钮进入）
 - **About**：项目说明与数据来源
+
+> UI 主题：默认深色主题（见 `.streamlit/config.toml`）。
 
 ### 功能说明（对应最低门槛）
 
@@ -95,10 +98,10 @@ streamlit run src/streamlit_app.py
 
 ### Discover 模块（创新加分项 / 工具化 UI）
 
-- **刷卡式发现**：把“陌生地址画像”做成卡片流（Signal score + tags + 近 3 笔交易 proof）
-- **Follow（本地）**：Follow 会写入 SQLite 的 `user_follows`，用于生成 copytrade feed（MVP：本地 watchlist）
-- **Swipe 记录（本地）**：Skip/Follow 行为会写入 `dating_swipes`（便于去重与复现）
-- **Signal score（可解释）**：基于链上行为（token/market overlap、方向偏好、节奏/风险、样本量）生成 0-100 分，并给出解释
+- **刷卡式发现**：随机抽取一批高 Signal 的潜在博主（可换一批），用“名片”展示关键数据与人设
+- **订阅（本地）**：Follow 写入 SQLite 的 `user_follows`，用于生成订阅信息流（MVP：本地 watchlist）
+- **互动记录（本地）**：Skip/Follow 写入 `dating_swipes`（便于去重与复现）
+- **Signal score（快速筛选）**：用于 Demo 的全局信号评分 + 可解释的链上证据
 
 ### UI 说明（便于评审理解）
 
@@ -109,6 +112,11 @@ streamlit run src/streamlit_app.py
 
 - **交易数据（必须）**：Polygon RPC `eth_getLogs` 拉取 CTF Exchange 合约 `OrderFilled` logs（真实链上数据）
 - **市场元数据（辅助）**：Gamma API（`/markets`）用于 market 详情、outcome/tokenId 映射与 winner 推断
+
+### 常见问题（运行时）
+
+- **为什么 slug/market_id 是 n/a**：说明还没把对应 tokenId 的 Gamma market 元数据同步到本地；运行 `python -m src.main sync-traded-markets`（不要加 `--closed-only`）即可逐步补齐。
+- **Gamma 同步很慢/超时（ProxyError）**：检查并临时关闭代理环境变量（`http_proxy/https_proxy` 等），再重试同步。
 
 ### 重要假设/限制（MVP）
 
